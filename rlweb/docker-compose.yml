@@ -1,0 +1,81 @@
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: rbweb-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pass}
+      MYSQL_DATABASE: ${DB_NAME:-reconheca_brasil_web}
+      MYSQL_USER: ${DB_USER:-rbweb_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-rbweb_pass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - rbweb-mysql-data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root_pass}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rbweb-net
+
+  backend-python:
+    build: ./backend-python
+    container_name: rbweb-backend-python
+    restart: unless-stopped
+    environment:
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_DESTINO: ${EMAIL_DESTINO:-contato@reconhecabrasilweb.com.br}
+    expose:
+      - "8000"
+    networks:
+      - rbweb-net
+
+  backend-node:
+    build: ./backend-node
+    container_name: rbweb-backend-node
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-rbweb_user}
+      DB_PASSWORD: ${DB_PASSWORD:-rbweb_pass}
+      DB_NAME: ${DB_NAME:-reconheca_brasil_web}
+      PYTHON_SERVICE_URL: http://backend-python:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      backend-python:
+        condition: service_started
+    expose:
+      - "3000"
+    networks:
+      - rbweb-net
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: rbweb-nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend-node
+    networks:
+      - rbweb-net
+
+networks:
+  rbweb-net:
+    driver: bridge
+
+volumes:
+  rbweb-mysql-data:
